@@ -1,8 +1,17 @@
 # -*- Makefile -*-
+ifeq ($(DESTDIR),)
+ DESTDIR := 
+ PREFIX := /usr/local
+else
+ ifeq ($(PREFIX),)
+  PREFIX := /usr
+ endif
+endif
 
-CC = gcc
-DBG_CC = gcc-11
-CFLAGS = -g -fsanitize=address -fsanitize=leak -Wall -Wextra
+CC = cc
+CFLAGS = -fsanitize=address -fsanitize=leak -Wall -Wextra
+DEBUG_CFLAGS = -g
+LD_FLAGS = -lm
 SOURCES = src/main.c src/util.c src/tab_complete.c src/fuzzy_finder.c src/readline.c
 TEST_SOURCES = tests/unit_tests/test_main.c tests/unit_tests/test_util.c tests/unit_tests/test_fuzzy_finder.c tests/unit_tests/test_tab_complete.c tests/unit_tests/test_readline.c
 test_target = $(basename $(notdir $(TEST_SOURCES)))
@@ -10,14 +19,19 @@ CURRENT_DIR = $(shell pwd)
 INSTALLDIR ?= /usr/local/bin
 # IN_SHELL_LIST = $(shell cat /etc/shells | grep psh)
 
-.SILENT:
-prod: ${SOURCES} ## Compile the production shell
-	${CC} ${SOURCES} -o ${INSTALLDIR}/psh -ldl -lm
+psh: ${SOURCES} ## Compile the production shell
+	${CC} ${CFLAGS} ${SOURCES} -o psh ${LD_FLAGS}
 
-.SILENT:
+.PHONY: debug
 debug: ${SOURCES} ## Compile the debug shell for development
-	if [ ! -d "./src/bin" ]; then mkdir ./src/bin ; fi
-	${DBG_CC} ${CFLAGS} ${SOURCES} -o src/bin/psh -ldl -lm
+	${CC} ${CFLAGS} ${DEBUG_CFLAGS} ${SOURCES} -o psh ${LD_FLAGS}
+
+.PHONY: install uninstall
+install:
+	install -D -m 755 psh ${DESTDIR}${PREFIX}/bin/psh
+uninstall:
+	rm -f ${DESTDIR}${PREFIX}/bin/psh
+
 
 .SILENT:
 compile_and_run_debug:
@@ -31,22 +45,22 @@ docker_shell: ${SOURCES}
 	if [ ! -d "./src/bin" ]; then mkdir ./src/bin ; fi
 	${CC} ${SOURCES} -o src/bin/psh -ldl -lm
 
+.PHONY: run_tests
 run_tests: $(TEST_SOURCES) $(SOURCES) ## Run all tests (needs criterion)
 	if [ ! -d "./tests/unit_tests/bin" ]; then mkdir ./tests/unit_tests/bin ; fi
-	${DBG_CC} ${CFLAGS} -o ./tests/unit_tests/bin/compiled_tests -D TEST ${TEST_SOURCES} ${SOURCES} \
-		-I /usr/local/Cellar/criterion/2.3.3/include/ -L/usr/local/Cellar/criterion/2.3.3/lib -lcriterion.3.1.0
+	${CC} ${CFLAGS} -o ./tests/unit_tests/bin/compiled_tests -D TEST ${TEST_SOURCES} ${SOURCES} -lcriterion ${LD_FLAGS}
 	./tests/unit_tests/bin/compiled_tests -l
 	./tests/unit_tests/bin/compiled_tests
 
-$(test_target): $(TEST_SOURCES) $(SOURCES) ## Run individual tests (needs criterion)
-	if [ ! -d "./tests/unit_tests/bin" ]; then mkdir ./tests/unit_tests/bin ; fi
-	if [ $@ = "test_util" -o $@ = "test_main" -o $@ = "test_readline" ]; then\
-		${DBG_CC} ${CFLAGS} -o ./tests/unit_tests/bin/compiled_$(subst test_,'',$@)_tests -D TEST tests/unit_tests/$@.c $(SOURCES) -L/usr/local/Cellar/criterion/2.3.3/lib/ -I/usr/local/Cellar/criterion/2.3.3/include/ -lcriterion.3.1.0;\
-	else\
-		${DBG_CC} ${CFLAGS} -o ./tests/unit_tests/bin/compiled_$(subst test_,'',$@)_tests -D TEST tests/unit_tests/$@.c src/util.c src/$(subst test_,'',$@).c -L/usr/local/Cellar/criterion/2.3.3/lib/ -I/usr/local/Cellar/criterion/2.3.3/include/ -lcriterion.3.1.0;\
-  fi
-	./tests/unit_tests/bin/compiled_$(subst test_,'',$@)_tests -l
-	./tests/unit_tests/bin/compiled_$(subst test_,'',$@)_tests
+#$(test_target): $(TEST_SOURCES) $(SOURCES) ## Run individual tests (needs criterion)
+#	if [ ! -d "./tests/unit_tests/bin" ]; then mkdir ./tests/unit_tests/bin ; fi
+#	if [ $@ = "test_util" -o $@ = "test_main" -o $@ = "test_readline" ]; then\
+#		${CC} ${CFLAGS} -o ./tests/unit_tests/bin/compiled_$(subst test_,'',$@)_tests -D TEST tests/unit_tests/$@.c $(SOURCES) -L/usr/local/Cellar/criterion/2.3.3/lib/ -I/usr/local/Cellar/criterion/2.3.3/include/ -lcriterion.3.1.0;\
+#	else\
+#		${CC} ${CFLAGS} -o ./tests/unit_tests/bin/compiled_$(subst test_,'',$@)_tests -D TEST tests/unit_tests/$@.c src/util.c src/$(subst test_,'',$@).c -L/usr/local/Cellar/criterion/2.3.3/lib/ -I/usr/local/Cellar/criterion/2.3.3/include/ -lcriterion.3.1.0;\
+#  fi
+#	./tests/unit_tests/bin/compiled_$(subst test_,'',$@)_tests -l
+#	./tests/unit_tests/bin/compiled_$(subst test_,'',$@)_tests
 
 integration_tests: ## have to run 'docker -t testing_container .'
 	make clean
@@ -55,4 +69,4 @@ integration_tests: ## have to run 'docker -t testing_container .'
 	make clean
 
 clean: ## Cleans up all binary and object files
-	rm -f -R *.o ./tests/unit_tests/bin/* ./src/bin/*
+	rm -f -R psh *.o ./tests/unit_tests/bin/* ./src/bin/*
